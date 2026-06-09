@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Definite Integration Calculator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f5f7fb;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            max-width: 1000px;
+            width: 100%;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            padding: 25px;
+            box-sizing: border-box;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: #1e293b;
+            text-align: center;
+            font-size: 24px;
+        }
+
+        .app-layout {
+            display: flex;
+            flex-direction: row;
+            gap: 30px;
+            margin-top: 20px;
+        }
+
+        @media (max-width: 800px) {
+            .app-layout {
+                flex-direction: column;
+            }
+        }
+
+        .controls-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            justify-content: center;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        label {
+            font-weight: 600;
+            color: #475569;
+            font-size: 14px;
+        }
+
+        input {
+            padding: 12px;
+            border: 2px solid #cbd5e1;
+            border-radius: 8px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            border-color: #3b82f6;
+        }
+
+        .bounds-group {
+            display: flex;
+            gap: 15px;
+        }
+
+        .bounds-group .input-group {
+            flex: 1;
+        }
+
+        .result-display {
+            background-color: #eff6ff;
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            margin-top: 10px;
+        }
+
+        .result-math {
+            font-size: 20px;
+            font-weight: bold;
+            color: #1d4ed8;
+            word-break: break-all;
+        }
+
+        .error-message {
+            color: #dc2626;
+            font-size: 14px;
+            margin-top: 5px;
+            display: none;
+        }
+
+        .graph-panel {
+            flex: 1.2;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        canvas {
+            background: #fafafa;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            width: 100%;
+            max-width: 500px;
+            height: auto;
+            aspect-ratio: 1 / 1;
+        }
+
+        .hint {
+            font-size: 12px;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Definite Integration Calculator</h2>
+    
+    <div class="app-layout">
+        <div class="controls-panel">
+            <div class="input-group">
+                <label for="function-input">Function f(x)</label>
+                <input type="text" id="function-input" value="x^2 - 2x" placeholder="e.g., x^2, sin(x), exp(x)">
+                <span class="hint">Use standard math syntax like: <code>x^2</code>, <code>sin(x)</code>, <code>2*x</code></span>
+                <div id="error-box" class="error-message"></div>
+            </div>
+
+            <div class="bounds-group">
+                <div class="input-group">
+                    <label for="bound-a">Lower Bound (a)</label>
+                    <input type="number" id="bound-a" value="0" step="any">
+                </div>
+                <div class="input-group">
+                    <label for="bound-b">Upper Bound (b)</label>
+                    <input type="number" id="bound-b" value="3" step="any">
+                </div>
+            </div>
+
+            <div class="result-display">
+                <label style="display:block; margin-bottom: 5px;">Calculated Definite Integral:</label>
+                <div id="result-text" class="result-math">∫ = 3.0000</div>
+            </div>
+        </div>
+
+        <div class="graph-panel">
+            <canvas id="graphCanvas" width="500" height="500"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    const canvas = document.getElementById('graphCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    const functionInput = document.getElementById('function-input');
+    const boundAInput = document.getElementById('bound-a');
+    const boundBInput = document.getElementById('bound-b');
+    const resultText = document.getElementById('result-text');
+    const errorBox = document.getElementById('error-box');
+
+    // Graph viewport coordinates setup
+    const xMin = -5;
+    const xMax = 5;
+    const yMin = -5;
+    const yMax = 5;
+
+    // Convert Math/Cartesian coordinates to Canvas Pixel units
+    function toCanvasX(x) {
+        return ((x - xMin) / (xMax - xMin)) * canvas.width;
+    }
+    
+    function toCanvasY(y) {
+        return canvas.height - (((y - yMin) / (yMax - yMin)) * canvas.height);
+    }
+
+    // Safely evaluate function using Math.js
+    function evaluateFunction(expr, xVal) {
+        try {
+            return math.evaluate(expr, { x: xVal });
+        } catch (e) {
+            return NaN;
+        }
+    }
+
+    // Simpson's rule for computing the definite integral numerically
+    function calculateIntegral(expr, a, b) {
+        const n = 1000; // number of intervals (must be even)
+        const h = (b - a) / n;
+        let sum = evaluateFunction(expr, a) + evaluateFunction(expr, b);
+
+        for (let i = 1; i < n; i++) {
+            let x = a + i * h;
+            if (i % 2 === 0) {
+                sum += 2 * evaluateFunction(expr, x);
+            } else {
+                sum += 4 * evaluateFunction(expr, x);
+            }
+        }
+        return (h / 3) * sum;
+    }
+
+    function drawGraph() {
+        // Clear background
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Clear errors initially
+        errorBox.style.display = 'none';
+
+        const expr = functionInput.value;
+        const a = parseFloat(boundAInput.value);
+        const b = parseFloat(boundBInput.value);
+
+        // 1. Draw Grid Lines and Axes
+        ctx.strokeStyle = '#e2e8f0';
+        ctx.lineWidth = 1;
+        
+        // Vertical grid lines
+        for(let x = Math.ceil(xMin); x <= Math.floor(xMax); x++) {
+            ctx.beginPath();
+            ctx.moveTo(toCanvasX(x), 0);
+            ctx.lineTo(toCanvasX(x), canvas.height);
+            ctx.stroke();
+        }
+        // Horizontal grid lines
+        for(let y = Math.ceil(yMin); y <= Math.floor(yMax); y++) {
+            ctx.beginPath();
+            ctx.moveTo(0, toCanvasY(y));
+            ctx.lineTo(canvas.width, toCanvasY(y));
+            ctx.stroke();
+        }
+
+        // Main Axis Lines (X and Y = 0)
+        ctx.strokeStyle = '#94a3b8';
+        ctx.lineWidth = 2;
+        
+        ctx.beginPath(); // X Axis
+        ctx.moveTo(0, toCanvasY(0));
+        ctx.lineTo(canvas.width, toCanvasY(0));
+        ctx.stroke();
+
+        ctx.beginPath(); // Y Axis
+        ctx.moveTo(toCanvasX(0), 0);
+        ctx.lineTo(toCanvasX(0), canvas.height);
+        ctx.stroke();
+
+        // Validate basic numeric bounds
+        if (isNaN(a) || isNaN(b)) {
+            resultText.innerText = "∫ = Waiting for bounds...";
+            return;
+        }
+
+        // Test if function expression parses smoothly
+        try {
+            math.parse(expr).compile();
+        } catch(err) {
+            errorBox.innerText = "Invalid mathematical expression.";
+            errorBox.style.display = 'block';
+            resultText.innerText = "∫ = Error";
+            return;
+        }
+
+        // 2. Draw & Shade Integration Area
+        if (a !== b) {
+            ctx.fillStyle = 'rgba(59, 130, 246, 0.35)'; // semi-transparent blue
+            ctx.beginPath();
+            
+            let startX = Math.min(a, b);
+            let endX = Math.max(a, b);
+            
+            ctx.moveTo(toCanvasX(startX), toCanvasY(0));
+            
+            const steps = 200;
+            for (let i = 0; i <= steps; i++) {
+                let x = startX + (i / steps) * (endX - startX);
+                let y = evaluateFunction(expr, x);
+                if (!isNaN(y)) {
+                    ctx.lineTo(toCanvasX(x), toCanvasY(y));
+                }
+            }
+            ctx.lineTo(toCanvasX(endX), toCanvasY(0));
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // 3. Plot the Continuous Function Line
+        ctx.strokeStyle = '#2563eb';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        
+        let firstPoint = true;
+        const resolution = 300;
+        for (let i = 0; i <= resolution; i++) {
+            let x = xMin + (i / resolution) * (xMax - xMin);
+            let y = evaluateFunction(expr, x);
+            
+            if (!isNaN(y) && isFinite(y)) {
+                if (firstPoint) {
+                    ctx.moveTo(toCanvasX(x), toCanvasY(y));
+                    firstPoint = false;
+                } else {
+                    ctx.lineTo(toCanvasX(x), toCanvasY(y));
+                }
+            }
+        }
+        ctx.stroke();
+
+        // 4. Calculate and Print Integral Output
+        const numericalArea = calculateIntegral(expr, a, b);
+        if (isNaN(numericalArea) || !isFinite(numericalArea)) {
+            resultText.innerText = "∫ = Undefined / Infinite";
+        } else {
+            resultText.innerText = `∫ ≈ ${numericalArea.toFixed(4)}`;
+        }
+    }
+
+    // Event listeners to handle real-time UI changes
+    functionInput.addEventListener('input', drawGraph);
+    boundAInput.addEventListener('input', drawGraph);
+    boundBInput.addEventListener('input', drawGraph);
+
+    // Initial render call on page load
+    drawGraph();
+</script>
+
+</body>
+</html>
